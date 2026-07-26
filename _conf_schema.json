@@ -1,0 +1,22 @@
+{
+    "storage_path": {
+        "type": "string",
+        "description": "下载临时存储目录（绝对路径或相对路径），留空则使用插件数据目录",
+        "default": ""
+    },
+    "auto_delete": {
+        "type": "bool",
+        "description": "发送完成后是否自动删除下载的图片和 PDF 文件（释放空间）",
+        "default": true
+    },
+    "option_file": {
+        "type": "string",
+        "description": "jmcomic 配置文件路径（.yml/.json），留空则使用内置默认配置（含 PDF 导出插件）",
+        "default": ""
+    },
+    "allowed_groups": {
+        "type": "list",
+        "description": "允许使用该插件的群组 ID 列表，为空则所有群生效",
+        "default": []
+    }
+}
