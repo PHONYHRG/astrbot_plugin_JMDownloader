@@ -81,7 +81,7 @@ class JmDownloaderPlugin(Star):
             if pdf_path and pdf_path.exists():
                 yield event.chain_result([
                     Plain(f"✅ 本子 {album_id} 下载完成！"),
-                    File(file=str(pdf_path), name=pdf_path.name)
+                    File(path=str(pdf_path), name=pdf_path.name)
                 ])
                 # 发送后清理
                 if self.delete_pdf:
@@ -115,7 +115,7 @@ class JmDownloaderPlugin(Star):
             if pdf_path and pdf_path.exists():
                 yield event.chain_result([
                     Plain(f"✅ 本子 {album_id} 下载完成！"),
-                    File(file=str(pdf_path), name=pdf_path.name)
+                    File(path=str(pdf_path), name=pdf_path.name)
                 ])
                 if self.delete_pdf:
                     try:

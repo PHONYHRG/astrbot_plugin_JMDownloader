@@ -24,8 +24,8 @@ class JmDownloaderPlugin(Star):
             storage_path = Path(get_astrbot_data_path()) / "plugin_data" / "jm_downloader" / "downloads"
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(parents=True, exist_ok=True)
-        self.auto_delete = self.config.get("auto_delete", False)
-        self.delete_pdf = self.config.get("delete_pdf_after_send", True)
+        self.auto_delete = self.config.get("auto_delete", False)          # 是否删除图片文件夹
+        self.delete_pdf = self.config.get("delete_pdf_after_send", True) # 是否删除 PDF
         self._downloader = None
 
     def _get_downloader(self):
@@ -81,7 +81,7 @@ class JmDownloaderPlugin(Star):
             if pdf_path and pdf_path.exists():
                 yield event.chain_result([
                     Plain(f"✅ 本子 {album_id} 下载完成！"),
-                    File(file=str(pdf_path), name=pdf_path.name)
+                    File(file=str(pdf_path))
                 ])
                 # 发送后清理
                 if self.delete_pdf:
@@ -115,8 +115,9 @@ class JmDownloaderPlugin(Star):
             if pdf_path and pdf_path.exists():
                 yield event.chain_result([
                     Plain(f"✅ 本子 {album_id} 下载完成！"),
-                    File(file=str(pdf_path), name=pdf_path.name)
+                    File(file=str(pdf_path))
                 ])
+                # 发送后清理
                 if self.delete_pdf:
                     try:
                         pdf_path.unlink()

@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 from astrbot.api.star import Context, Star, register
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.message_components import File, Plain
+from astrbot.api.message_components import Plain
 from astrbot.api import logger
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
@@ -79,10 +79,8 @@ class JmDownloaderPlugin(Star):
                 self.storage_path
             )
             if pdf_path and pdf_path.exists():
-                yield event.chain_result([
-                    Plain(f"✅ 本子 {album_id} 下载完成！"),
-                    File(file=str(pdf_path), name=pdf_path.name)
-                ])
+                yield event.plain_result(f"✅ 本子 {album_id} 下载完成！")
+                yield event.file_result(str(pdf_path))
                 # 发送后清理
                 if self.delete_pdf:
                     try:
@@ -113,10 +111,8 @@ class JmDownloaderPlugin(Star):
                 self.storage_path
             )
             if pdf_path and pdf_path.exists():
-                yield event.chain_result([
-                    Plain(f"✅ 本子 {album_id} 下载完成！"),
-                    File(file=str(pdf_path), name=pdf_path.name)
-                ])
+                yield event.plain_result(f"✅ 本子 {album_id} 下载完成！")
+                yield event.file_result(str(pdf_path))
                 if self.delete_pdf:
                     try:
                         pdf_path.unlink()

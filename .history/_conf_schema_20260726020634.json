@@ -4,15 +4,10 @@
         "description": "下载临时存储目录（绝对路径或相对路径），留空则使用插件数据目录",
         "default": ""
     },
-    "delete_pdf_after_send": {
-        "type": "bool",
-        "description": "发送完成后是否自动删除 PDF 文件（保留图片文件夹）",
-        "default": true
-    },
     "auto_delete": {
         "type": "bool",
         "description": "发送完成后是否自动删除下载的图片和 PDF 文件（释放空间）",
-        "default": false
+        "default": true
     },
     "option_file": {
         "type": "string",
