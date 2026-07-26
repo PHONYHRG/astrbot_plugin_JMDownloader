@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 from astrbot.api.star import Context, Star, register
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.message_components import Plain, File
+from astrbot.api.message_components import Plain
 from astrbot.api import logger
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
@@ -69,7 +69,7 @@ class JmDownloaderPlugin(Star):
                 if i == max_retries - 1:
                     logger.warning(f"删除文件失败（已达最大重试次数）: {e}")
                 else:
-                    await asyncio.sleep(delay * (i + 1))
+                    await asyncio.sleep(delay * (i + 1))  # 递增等待
             except Exception as e:
                 logger.warning(f"删除文件失败: {e}")
                 break
@@ -94,11 +94,8 @@ class JmDownloaderPlugin(Star):
                 album_id
             )
             if pdf_path and pdf_path.exists():
-                # 使用链式消息发送文字和文件
-                yield event.chain_result([
-                    Plain(f"✅ 本子 {album_id} 下载完成！"),
-                    File(file=str(pdf_path), name=pdf_path.name)
-                ])
+                yield event.plain_result(f"✅ 本子 {album_id} 下载完成！")
+                yield event.file_result(str(pdf_path))
                 # 等待文件发送完成（给系统一点时间释放文件句柄）
                 await asyncio.sleep(1)
                 # 发送后清理
@@ -126,10 +123,8 @@ class JmDownloaderPlugin(Star):
                 album_id
             )
             if pdf_path and pdf_path.exists():
-                yield event.chain_result([
-                    Plain(f"✅ 本子 {album_id} 下载完成！"),
-                    File(file=str(pdf_path), name=pdf_path.name)
-                ])
+                yield event.plain_result(f"✅ 本子 {album_id} 下载完成！")
+                yield event.file_result(str(pdf_path))
                 await asyncio.sleep(1)
                 if self.delete_pdf:
                     await self._delete_with_retry(pdf_path)
