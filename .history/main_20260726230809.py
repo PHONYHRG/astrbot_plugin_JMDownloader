@@ -48,6 +48,8 @@ class JmDownloaderPlugin(Star):
         return group_id in allowed
 
     def _parse_jm_command(self, text: str):
+        """解析 jm 命令，返回 (id, chapter_param)"""
+        # 匹配 jm123 或 jm123 full 或 jm123 2
         pattern = r'^(?:jm|JM|本子)\s*(\d+)(?:\s+(full|\d+))?$'
         match = re.match(pattern, text)
         if match:
@@ -82,11 +84,13 @@ class JmDownloaderPlugin(Star):
     async def initialize(self):
         logger.info("JM下载器插件已加载")
 
+    # ---------- 查询命令 ----------
     @filter.regex(r"^查询jm\d+$")
     async def on_query_jm(self, event: AstrMessageEvent):
         if not self._is_group_allowed(event):
             return
         text = event.message_str.strip()
+        # 提取数字
         match = re.search(r'(\d+)', text)
         if not match:
             yield event.plain_result("无法提取本子 ID。")
@@ -99,6 +103,7 @@ class JmDownloaderPlugin(Star):
             if not info:
                 yield event.plain_result(f"❌ 未找到本子 {album_id} 或获取详情失败。")
                 return
+            # 格式化输出
             lines = [
                 f"📖 标题：{info['title']}",
                 f"✍️ 作者：{info['author']}",
@@ -106,6 +111,7 @@ class JmDownloaderPlugin(Star):
                 f"🏷️ 标签：{', '.join(info['tags'])}",
                 f"📄 章节数：{len(info['photos'])}",
             ]
+            # 添加章节列表（最多显示10个）
             photo_list = info['photos']
             if photo_list:
                 lines.append("📑 章节列表：")
@@ -118,6 +124,7 @@ class JmDownloaderPlugin(Star):
             logger.error(f"查询本子 {album_id} 出错: {e}")
             yield event.plain_result(f"❌ 查询出错: {e}")
 
+    # ---------- 下载命令 ----------
     @filter.regex(r"^(?:jm|JM|本子)\s*\d+(?:\s+(?:full|\d+))?$")
     async def on_jm_command(self, event: AstrMessageEvent):
         if not self._is_group_allowed(event):
@@ -127,6 +134,7 @@ class JmDownloaderPlugin(Star):
         if not album_id:
             yield event.plain_result("无法提取有效的 JM ID。")
             return
+        # 构造提示
         if chapter is None:
             tip = "第一章"
         elif chapter == 'full':

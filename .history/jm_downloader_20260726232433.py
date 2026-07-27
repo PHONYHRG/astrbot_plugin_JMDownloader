@@ -68,35 +68,56 @@ class JmDownloader:
             return self.option_file
         return str(self.default_option_file)
 
-    def _scan_chapter_dirs(self, album_dir: Path, base_path: Optional[Path] = None) -> List[Dict]:
-        """递归扫描专辑目录下的所有包含图片的子目录，返回章节列表"""
-        if base_path is None:
-            base_path = album_dir
-        chapters = []
-        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
-        # 检查当前目录是否包含图片
-        image_files = []
-        for ext in image_extensions:
-            image_files.extend(album_dir.glob(f"*{ext}"))
-            image_files.extend(album_dir.glob(f"*{ext.upper()}"))
-        if image_files:
-            # 相对于 base_path 的相对路径作为 ID
-            rel_path = album_dir.relative_to(base_path)
-            chapter_id = "_".join(rel_path.parts) if rel_path != Path('.') else "root"
-            title = album_dir.name if album_dir != base_path else "根目录"
-            chapters.append({
-                "id": chapter_id,
-                "title": title,
-                "path": album_dir,
-                "page_count": len(image_files)
-            })
-        # 递归遍历子目录
-        for sub_dir in album_dir.iterdir():
-            if sub_dir.is_dir():
-                chapters.extend(self._scan_chapter_dirs(sub_dir, base_path))
-        return chapters
+    def _get_album_photos(self, album) -> List:
+        """
+        智能获取章节列表，遍历对象属性，找到第一个非空列表且元素具有 id/name 属性
+        """
+        # 首先尝试常见属性名
+        common_attrs = ['photos', 'photo_list', 'children', 'album_photos', 'photo_info_list', 'pages', 'chapter_list']
+        for attr in common_attrs:
+            if hasattr(album, attr):
+                val = getattr(album, attr)
+                if val and isinstance(val, list) and len(val) > 0:
+                    # 检查第一个元素是否有 id 或 name
+                    first = val[0]
+                    if hasattr(first, 'id') or hasattr(first, 'name'):
+                        logger.debug(f"使用常见属性 '{attr}' 获取章节列表")
+                        return val
+
+        # 遍历所有属性（包括 __dict__）
+        # 先检查 __dict__
+        if hasattr(album, '__dict__'):
+            for key, val in album.__dict__.items():
+                if isinstance(val, list) and len(val) > 0:
+                    first = val[0]
+                    if hasattr(first, 'id') or hasattr(first, 'name'):
+                        logger.debug(f"从 __dict__ 中找到章节列表属性: {key}")
+                        return val
+
+        # 最后遍历 dir 中的属性
+        for attr_name in dir(album):
+            if attr_name.startswith('_'):
+                continue
+            try:
+                val = getattr(album, attr_name)
+            except:
+                continue
+            if isinstance(val, list) and len(val) > 0:
+                first = val[0]
+                if hasattr(first, 'id') or hasattr(first, 'name'):
+                    logger.debug(f"从 dir 中找到章节列表属性: {attr_name}")
+                    return val
+
+        return []
+
+    def _get_attr(self, obj, *attrs, default=None):
+        for attr in attrs:
+            if hasattr(obj, attr):
+                return getattr(obj, attr)
+        return default
 
     def get_album_info(self, album_id: str) -> Optional[Dict]:
+        """获取专辑详情（通过下载到临时目录获取信息，然后删除）"""
         jmcomic = self._import_jmcomic()
         temp_dir = self.storage_path / "temp_info"
         temp_config = self.storage_path / "temp_option.yml"
@@ -113,38 +134,37 @@ class JmDownloader:
             album = downloader.download_album(album_id)
             if not album:
                 return None
-            title = getattr(album, 'name', getattr(album, 'title', '未知标题'))
-            author = getattr(album, 'author', getattr(album, 'author_name', '未知作者'))
-            description = getattr(album, 'description', getattr(album, 'desc', '无简介'))
-            tags = getattr(album, 'tags', getattr(album, 'tag_list', []))
 
-            # 扫描临时目录获取章节（递归）
-            album_dir = temp_dir / album_id
-            if not album_dir.exists():
-                for d in temp_dir.glob(f"*{album_id}*"):
-                    if d.is_dir():
-                        album_dir = d
-                        break
-            if not album_dir.exists():
-                logger.error(f"下载后未找到专辑目录: {album_id}")
+            # 兼容属性名
+            title = self._get_attr(album, 'name', 'title', default='未知标题')
+            author = self._get_attr(album, 'author', 'author_name', default='未知作者')
+            description = self._get_attr(album, 'description', 'desc', default='无简介')
+            tags = self._get_attr(album, 'tags', 'tag_list', default=[])
+
+            photos = self._get_album_photos(album)
+            if not photos:
+                logger.error(f"无法获取专辑 {album_id} 的章节列表")
                 return None
-            chapters = self._scan_chapter_dirs(album_dir)
+
             info = {
                 "id": album_id,
                 "title": title,
                 "author": author,
                 "description": description,
                 "tags": tags,
-                "photos": [
-                    {
-                        "id": c["id"],
-                        "title": c["title"],
-                        "order": idx + 1,
-                        "page_count": c["page_count"]
-                    }
-                    for idx, c in enumerate(chapters)
-                ]
+                "photos": []
             }
+            for photo in photos:
+                photo_id = self._get_attr(photo, 'id', 'photo_id', default='')
+                photo_title = self._get_attr(photo, 'name', 'title', default='未知章节')
+                photo_order = self._get_attr(photo, 'order', default=0)
+                photo_pages = self._get_attr(photo, 'page_count', 'page_num', default=0)
+                info["photos"].append({
+                    "id": photo_id,
+                    "title": photo_title,
+                    "order": photo_order,
+                    "page_count": photo_pages
+                })
             return info
         except Exception as e:
             logger.error(f"获取专辑信息失败: {e}")
@@ -155,20 +175,23 @@ class JmDownloader:
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
 
-    def _collect_images_for_chapters(self, album_dir: Path, chapter_ids: List[str]) -> List[Path]:
-        all_chapters = self._scan_chapter_dirs(album_dir)
-        id_to_path = {c["id"]: c["path"] for c in all_chapters}
+    def _collect_images_for_chapters(self, album_dir: Path, photo_ids: List[str]) -> List[Path]:
+        """根据章节ID列表，收集所有图片文件路径，按章节和图片顺序排序"""
         image_files = []
-        for cid in chapter_ids:
-            if cid not in id_to_path:
-                logger.warning(f"未找到章节 ID: {cid}")
+        for photo_id in photo_ids:
+            found_dir = None
+            for sub_dir in album_dir.iterdir():
+                if sub_dir.is_dir() and photo_id in sub_dir.name:
+                    found_dir = sub_dir
+                    break
+            if not found_dir:
+                logger.warning(f"未找到章节 {photo_id} 的下载目录")
                 continue
-            chap_path = id_to_path[cid]
             image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
             files = []
             for ext in image_extensions:
-                files.extend(chap_path.glob(f"*{ext}"))
-                files.extend(chap_path.glob(f"*{ext.upper()}"))
+                files.extend(found_dir.glob(f"*{ext}"))
+                files.extend(found_dir.glob(f"*{ext.upper()}"))
             files = list(set(files))
             def extract_number(filepath: Path) -> int:
                 match = re.search(r'(\d+)', filepath.stem)
@@ -227,27 +250,35 @@ class JmDownloader:
                 logger.error(f"未找到本子 {album_id} 的下载目录")
                 return None, None
 
-            all_chapters = self._scan_chapter_dirs(album_dir)
-            if not all_chapters:
+            photo_list = self._get_album_photos(album)
+            if not photo_list:
                 logger.error(f"本子 {album_id} 没有章节")
                 return None, None
 
             if chapter is None:
-                selected = [all_chapters[0]] if all_chapters else []
+                selected_photos = [photo_list[0]] if photo_list else []
             elif isinstance(chapter, int):
-                if 1 <= chapter <= len(all_chapters):
-                    selected = [all_chapters[chapter - 1]]
+                if 1 <= chapter <= len(photo_list):
+                    selected_photos = [photo_list[chapter - 1]]
                 else:
-                    logger.error(f"章节序号 {chapter} 超出范围 (1-{len(all_chapters)})")
+                    logger.error(f"章节序号 {chapter} 超出范围 (1-{len(photo_list)})")
                     return None, None
-            else:
-                selected = all_chapters
+            else:  # 'full'
+                selected_photos = photo_list
 
-            if not selected:
+            if not selected_photos:
                 logger.error("没有可用的章节")
                 return None, None
 
-            photo_ids = [c["id"] for c in selected]
+            photo_ids = []
+            for p in selected_photos:
+                pid = self._get_attr(p, 'id', 'photo_id', default='')
+                if pid:
+                    photo_ids.append(pid)
+            if not photo_ids:
+                logger.error("无法获取章节 ID")
+                return None, None
+
             image_files = self._collect_images_for_chapters(album_dir, photo_ids)
             if not image_files:
                 logger.error("未找到任何图片文件")

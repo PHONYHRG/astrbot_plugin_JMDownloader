@@ -68,107 +68,73 @@ class JmDownloader:
             return self.option_file
         return str(self.default_option_file)
 
-    def _scan_chapter_dirs(self, album_dir: Path, base_path: Optional[Path] = None) -> List[Dict]:
-        """递归扫描专辑目录下的所有包含图片的子目录，返回章节列表"""
-        if base_path is None:
-            base_path = album_dir
-        chapters = []
-        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
-        # 检查当前目录是否包含图片
-        image_files = []
-        for ext in image_extensions:
-            image_files.extend(album_dir.glob(f"*{ext}"))
-            image_files.extend(album_dir.glob(f"*{ext.upper()}"))
-        if image_files:
-            # 相对于 base_path 的相对路径作为 ID
-            rel_path = album_dir.relative_to(base_path)
-            chapter_id = "_".join(rel_path.parts) if rel_path != Path('.') else "root"
-            title = album_dir.name if album_dir != base_path else "根目录"
-            chapters.append({
-                "id": chapter_id,
-                "title": title,
-                "path": album_dir,
-                "page_count": len(image_files)
-            })
-        # 递归遍历子目录
-        for sub_dir in album_dir.iterdir():
-            if sub_dir.is_dir():
-                chapters.extend(self._scan_chapter_dirs(sub_dir, base_path))
-        return chapters
-
     def get_album_info(self, album_id: str) -> Optional[Dict]:
+        """
+        获取专辑详情（通过下载到临时目录获取信息，然后删除）
+        注意：此方法会下载整个本子到临时目录，但下载后立即删除，适合查询少量本子。
+        """
         jmcomic = self._import_jmcomic()
         temp_dir = self.storage_path / "temp_info"
-        temp_config = self.storage_path / "temp_option.yml"
         try:
+            # 创建临时目录
             temp_dir.mkdir(exist_ok=True)
-            temp_config_dict = {
-                "dir_rule": {"base_dir": str(temp_dir), "rule": "Bd_Aid"},
-                "download": {"image": {"suffix": None}}
-            }
-            with open(temp_config, "w", encoding="utf-8") as f:
-                yaml.dump(temp_config_dict, f, allow_unicode=True, default_flow_style=False)
-            option = jmcomic.create_option_by_file(str(temp_config))
-            downloader = jmcomic.JmDownloader(option)
+            # 创建临时 option，指向临时目录
+            temp_option = jmcomic.create_option({
+                "dir_rule": {
+                    "base_dir": str(temp_dir),
+                    "rule": "Bd_Aid"
+                },
+                "download": {
+                    "image": {
+                        "suffix": None
+                    }
+                }
+            })
+            downloader = jmcomic.JmDownloader(temp_option)
             album = downloader.download_album(album_id)
             if not album:
                 return None
-            title = getattr(album, 'name', getattr(album, 'title', '未知标题'))
-            author = getattr(album, 'author', getattr(album, 'author_name', '未知作者'))
-            description = getattr(album, 'description', getattr(album, 'desc', '无简介'))
-            tags = getattr(album, 'tags', getattr(album, 'tag_list', []))
-
-            # 扫描临时目录获取章节（递归）
-            album_dir = temp_dir / album_id
-            if not album_dir.exists():
-                for d in temp_dir.glob(f"*{album_id}*"):
-                    if d.is_dir():
-                        album_dir = d
-                        break
-            if not album_dir.exists():
-                logger.error(f"下载后未找到专辑目录: {album_id}")
-                return None
-            chapters = self._scan_chapter_dirs(album_dir)
             info = {
-                "id": album_id,
-                "title": title,
-                "author": author,
-                "description": description,
-                "tags": tags,
-                "photos": [
-                    {
-                        "id": c["id"],
-                        "title": c["title"],
-                        "order": idx + 1,
-                        "page_count": c["page_count"]
-                    }
-                    for idx, c in enumerate(chapters)
-                ]
+                "id": album.id,
+                "title": album.name,
+                "author": album.author,
+                "description": album.description or "无简介",
+                "tags": album.tags,
+                "photos": []
             }
+            for photo in album.photos:
+                info["photos"].append({
+                    "id": photo.id,
+                    "title": photo.name,
+                    "order": photo.order,
+                    "page_count": photo.page_count
+                })
             return info
         except Exception as e:
             logger.error(f"获取专辑信息失败: {e}")
             return None
         finally:
-            if temp_config.exists():
-                temp_config.unlink()
+            # 删除临时目录
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
 
-    def _collect_images_for_chapters(self, album_dir: Path, chapter_ids: List[str]) -> List[Path]:
-        all_chapters = self._scan_chapter_dirs(album_dir)
-        id_to_path = {c["id"]: c["path"] for c in all_chapters}
+    def _collect_images_for_chapters(self, album_dir: Path, photo_ids: List[str]) -> List[Path]:
+        """根据章节ID列表，收集所有图片文件路径，按章节和图片顺序排序"""
         image_files = []
-        for cid in chapter_ids:
-            if cid not in id_to_path:
-                logger.warning(f"未找到章节 ID: {cid}")
+        for photo_id in photo_ids:
+            found_dir = None
+            for sub_dir in album_dir.iterdir():
+                if sub_dir.is_dir() and photo_id in sub_dir.name:
+                    found_dir = sub_dir
+                    break
+            if not found_dir:
+                logger.warning(f"未找到章节 {photo_id} 的下载目录")
                 continue
-            chap_path = id_to_path[cid]
             image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
             files = []
             for ext in image_extensions:
-                files.extend(chap_path.glob(f"*{ext}"))
-                files.extend(chap_path.glob(f"*{ext.upper()}"))
+                files.extend(found_dir.glob(f"*{ext}"))
+                files.extend(found_dir.glob(f"*{ext.upper()}"))
             files = list(set(files))
             def extract_number(filepath: Path) -> int:
                 match = re.search(r'(\d+)', filepath.stem)
@@ -227,27 +193,23 @@ class JmDownloader:
                 logger.error(f"未找到本子 {album_id} 的下载目录")
                 return None, None
 
-            all_chapters = self._scan_chapter_dirs(album_dir)
-            if not all_chapters:
-                logger.error(f"本子 {album_id} 没有章节")
-                return None, None
-
+            photo_list = album.photos
             if chapter is None:
-                selected = [all_chapters[0]] if all_chapters else []
+                selected_photos = [photo_list[0]] if photo_list else []
             elif isinstance(chapter, int):
-                if 1 <= chapter <= len(all_chapters):
-                    selected = [all_chapters[chapter - 1]]
+                if 1 <= chapter <= len(photo_list):
+                    selected_photos = [photo_list[chapter - 1]]
                 else:
-                    logger.error(f"章节序号 {chapter} 超出范围 (1-{len(all_chapters)})")
+                    logger.error(f"章节序号 {chapter} 超出范围 (1-{len(photo_list)})")
                     return None, None
-            else:
-                selected = all_chapters
+            else:  # 'full'
+                selected_photos = photo_list
 
-            if not selected:
+            if not selected_photos:
                 logger.error("没有可用的章节")
                 return None, None
 
-            photo_ids = [c["id"] for c in selected]
+            photo_ids = [p.id for p in selected_photos]
             image_files = self._collect_images_for_chapters(album_dir, photo_ids)
             if not image_files:
                 logger.error("未找到任何图片文件")
