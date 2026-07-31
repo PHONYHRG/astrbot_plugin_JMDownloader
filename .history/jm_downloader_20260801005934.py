@@ -9,11 +9,10 @@ from typing import Optional, Tuple, List, Dict, Union
 from astrbot.api import logger
 
 class JmDownloader:
-    def __init__(self, storage_path: Path, option_file: str = "", config: dict = None):
+    def __init__(self, storage_path: Path, option_file: str = ""):
         self.storage_path = storage_path
         self.storage_path.mkdir(parents=True, exist_ok=True)
         self.option_file = option_file
-        self.config = config or {}
         self.default_option_file = self.storage_path / "default_option.yml"
         self._ensure_config_file()
 
@@ -70,18 +69,6 @@ class JmDownloader:
             return self.option_file
         return str(self.default_option_file)
 
-    def _cleanup_album_dir(self, album_id: str):
-        """清理同名目录及输出文件（PDF/ZIP）"""
-        album_dir = self.storage_path / album_id
-        if album_dir.exists():
-            shutil.rmtree(album_dir, ignore_errors=True)
-            logger.debug(f"已清理旧目录: {album_dir}")
-        for ext in ['.pdf', '.zip']:
-            f = self.storage_path / f"{album_id}{ext}"
-            if f.exists():
-                f.unlink(missing_ok=True)
-                logger.debug(f"已清理旧文件: {f}")
-
     def _scan_chapter_dirs(self, album_dir: Path, base_path: Optional[Path] = None) -> List[Dict]:
         """递归扫描专辑目录下的所有包含图片的子目录，返回章节列表"""
         if base_path is None:
@@ -95,6 +82,7 @@ class JmDownloader:
             image_files.extend(album_dir.glob(f"*{ext.upper()}"))
         if image_files:
             rel_path = album_dir.relative_to(base_path)
+            # 修正：使用 "_".join（之前少了点）
             chapter_id = "_".join(rel_path.parts) if rel_path != Path('.') else "root"
             title = album_dir.name if album_dir != base_path else "根目录"
             chapters.append({
@@ -168,7 +156,7 @@ class JmDownloader:
             if temp_config.exists():
                 temp_config.unlink()
             if temp_dir.exists():
-                shutil.rmtree(temp_dir, ignore_errors=True)
+                shutil.rmtree(temp_dir)
 
     def _collect_images_for_chapters(self, album_dir: Path, chapter_ids: List[str]) -> List[Path]:
         all_chapters = self._scan_chapter_dirs(album_dir)
@@ -219,10 +207,6 @@ class JmDownloader:
 
     def download_and_pdf(self, album_id: str, chapter: Optional[Union[int, str]] = None) -> Tuple[Optional[Path], Optional[Path]]:
         """下载本子并合成 PDF，返回 (pdf_path, album_dir)"""
-        # 根据配置清理旧目录
-        if self.config.get("cleanup_before_download", True):
-            self._cleanup_album_dir(album_id)
-
         jmcomic = self._import_jmcomic()
         try:
             option = jmcomic.create_option_by_file(self._get_option_file())
@@ -277,10 +261,6 @@ class JmDownloader:
 
     def download_and_zip(self, album_id: str, chapter: Optional[Union[int, str]] = None) -> Tuple[Optional[Path], Optional[Path]]:
         """下载本子并打包为 ZIP，返回 (zip_path, album_dir)"""
-        # 根据配置清理旧目录
-        if self.config.get("cleanup_before_download", True):
-            self._cleanup_album_dir(album_id)
-
         jmcomic = self._import_jmcomic()
         try:
             option = jmcomic.create_option_by_file(self._get_option_file())
@@ -326,6 +306,7 @@ class JmDownloader:
 
             zip_path = self.storage_path / f"{album_id}.zip"
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                # 保持目录结构，以 album_dir.parent 为根
                 for img in image_files:
                     arcname = img.relative_to(album_dir.parent)
                     zf.write(img, arcname)

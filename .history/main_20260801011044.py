@@ -33,11 +33,7 @@ class JmDownloaderPlugin(Star):
         if self._downloader is None:
             try:
                 from .jm_downloader import JmDownloader
-                self._downloader = JmDownloader(
-                    self.storage_path,
-                    self.config.get("option_file", ""),
-                    self.config  # 传递配置，用于清理
-                )
+                self._downloader = JmDownloader(self.storage_path, self.config.get("option_file", ""))
             except ImportError as e:
                 logger.error(f"无法加载 JmDownloader: {e}")
                 raise
@@ -55,9 +51,8 @@ class JmDownloaderPlugin(Star):
     async def _delete_with_retry(self, path: Path, max_retries: int = 5, delay: float = 0.5):
         for i in range(max_retries):
             try:
-                if path.exists():
-                    path.unlink()
-                    logger.debug(f"已删除文件: {path}")
+                path.unlink()
+                logger.debug(f"已删除文件: {path}")
                 return
             except PermissionError as e:
                 if i == max_retries - 1:
@@ -76,11 +71,11 @@ class JmDownloaderPlugin(Star):
         try:
             temp_info = self.storage_path / "temp_info"
             if temp_info.exists():
-                shutil.rmtree(temp_info, ignore_errors=True)
+                shutil.rmtree(temp_info)
                 logger.debug(f"已删除临时目录: {temp_info}")
             for item in self.storage_path.iterdir():
                 if item.is_dir() and item.name.isdigit():
-                    shutil.rmtree(item, ignore_errors=True)
+                    shutil.rmtree(item)
                     logger.debug(f"已删除残留目录: {item}")
         except Exception as e:
             logger.warning(f"启动清理时出错: {e}")
@@ -131,20 +126,24 @@ class JmDownloaderPlugin(Star):
         if not self._is_group_allowed(event):
             return
 
+        # 手动匹配以提取参数（也可直接使用 event 的 matched groups，但为清晰手动匹配）
         match = re.match(r"^(?:jm|JM|本子)\s*(\d+)(?:\s+(pdf|zip))?(?:\s+(full|\d+))?\s*$", event.message_str)
         if not match:
             yield event.plain_result("无法解析命令格式。")
             return
 
         album_id = match.group(1)
-        transport = match.group(2) if match.group(2) else 'pdf'
-        chapter = match.group(3)
+        transport = match.group(2) if match.group(2) else 'pdf'  # 默认 PDF
+        chapter = match.group(3)  # 可能是 'full' 或数字字符串，或 None
 
+        # 处理章节参数
         if chapter == 'full':
             chapter = 'full'
         elif chapter is not None and chapter.isdigit():
             chapter = int(chapter)
+        # 如果 chapter 是 None，保持为 None（表示第一章）
 
+        # 构造提示信息
         transport_label = "PDF" if transport == 'pdf' else "ZIP压缩包"
         if chapter is None:
             tip = "第一章"
@@ -178,15 +177,8 @@ class JmDownloaderPlugin(Star):
                 if self.delete_output:
                     await self._delete_with_retry(output_path)
                 if self.auto_delete and album_dir and album_dir.exists():
-                    # 重试删除图片文件夹
-                    for _ in range(3):
-                        try:
-                            shutil.rmtree(album_dir, ignore_errors=True)
-                            logger.debug(f"已删除图片文件夹: {album_dir}")
-                            break
-                        except Exception as e:
-                            logger.warning(f"删除图片文件夹失败，重试: {e}")
-                            await asyncio.sleep(0.5)
+                    shutil.rmtree(album_dir)
+                    logger.debug(f"已删除图片文件夹: {album_dir}")
             else:
                 yield event.plain_result(f"❌ 下载本子 {album_id} 失败。")
         except Exception as e:

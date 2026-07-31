@@ -14,11 +14,6 @@
         "description": "发送完成后是否自动删除 PDF 或 ZIP 文件（保留图片文件夹）",
         "default": true
     },
-    "cleanup_before_download": {
-        "type": "bool",
-        "description": "下载前是否自动清理同名目录（避免残留占用）",
-        "default": true
-    },
     "clear_on_startup": {
         "type": "bool",
         "description": "插件启动时是否自动清理临时文件夹和残留图片（释放空间）",

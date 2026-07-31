@@ -1,6 +1,6 @@
 name: astrbot_plugin_JMDownloader
 display_name: JM下载器
-desc: 在群聊中发送jm车牌号，让bot帮你下载本子并可选以PDF格式或者以压缩包形式发送
+desc: 在群聊中发送jm车牌号，让bot帮你下载本子并以PDF格式发送
 version: 0.0.4
 author: Phony
 repo: https://github.com/PHONYHRG/astrbot_plugin_JMDownloader

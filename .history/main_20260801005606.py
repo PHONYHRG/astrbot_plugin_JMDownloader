@@ -33,11 +33,7 @@ class JmDownloaderPlugin(Star):
         if self._downloader is None:
             try:
                 from .jm_downloader import JmDownloader
-                self._downloader = JmDownloader(
-                    self.storage_path,
-                    self.config.get("option_file", ""),
-                    self.config  # 传递配置，用于清理
-                )
+                self._downloader = JmDownloader(self.storage_path, self.config.get("option_file", ""))
             except ImportError as e:
                 logger.error(f"无法加载 JmDownloader: {e}")
                 raise
@@ -52,12 +48,38 @@ class JmDownloaderPlugin(Star):
             return True
         return group_id in allowed
 
+    def _parse_jm_command(self, text: str):
+        '''
+        解析 JM 命令，返回 (album_id, transport, chapter)
+        album_id: 本子 ID
+        transport: 'pdf' 或 'zip'
+        chapter: None (默认第一章), 'full', 或 int
+        '''
+        # 移除前缀
+        text = re.sub(r'^(?:jm|JM|本子)\s*', '', text).strip()
+        parts = text.split()
+        if not parts:
+            return None, None, None
+        album_id = parts[0]
+        if not album_id.isdigit():
+            return None, None, None
+        transport = 'pdf'
+        chapter = None
+        for token in parts[1:]:
+            token_lower = token.lower()
+            if token_lower in ('pdf', 'zip'):
+                transport = token_lower
+            elif token_lower == 'full':
+                chapter = 'full'
+            elif token_lower.isdigit():
+                chapter = int(token_lower)
+        return album_id, transport, chapter
+
     async def _delete_with_retry(self, path: Path, max_retries: int = 5, delay: float = 0.5):
         for i in range(max_retries):
             try:
-                if path.exists():
-                    path.unlink()
-                    logger.debug(f"已删除文件: {path}")
+                path.unlink()
+                logger.debug(f"已删除文件: {path}")
                 return
             except PermissionError as e:
                 if i == max_retries - 1:
@@ -74,14 +96,18 @@ class JmDownloaderPlugin(Star):
             return
         logger.info("执行启动清理，释放空间...")
         try:
+            # 清理 temp_info
             temp_info = self.storage_path / "temp_info"
             if temp_info.exists():
-                shutil.rmtree(temp_info, ignore_errors=True)
+                shutil.rmtree(temp_info)
                 logger.debug(f"已删除临时目录: {temp_info}")
+            # 清理所有以数字命名的目录（可能是下载残留）
             for item in self.storage_path.iterdir():
                 if item.is_dir() and item.name.isdigit():
-                    shutil.rmtree(item, ignore_errors=True)
+                    shutil.rmtree(item)
                     logger.debug(f"已删除残留目录: {item}")
+            # 清理旧的 PDF/ZIP 文件（可选：按修改时间保留最近3个？这里简单清理，但谨慎，暂不自动删除）
+            # 我们只清理 .pdf 和 .zip 文件（根据配置可能被保留，所以不删）
         except Exception as e:
             logger.warning(f"启动清理时出错: {e}")
 
@@ -90,11 +116,12 @@ class JmDownloaderPlugin(Star):
         await self._clean_temp_dirs()
 
     # ---------- 查询命令 ----------
-    @filter.regex(r"^查询jm\s*(\d+)\s*$")
+    @filter.regex(r"^查询jm\d+$")
     async def on_query_jm(self, event: AstrMessageEvent):
         if not self._is_group_allowed(event):
             return
-        match = re.match(r"^查询jm\s*(\d+)\s*$", event.message_str)
+        text = event.message_str.strip()
+        match = re.search(r'(\d+)', text)
         if not match:
             yield event.plain_result("无法提取本子 ID。")
             return
@@ -126,25 +153,17 @@ class JmDownloaderPlugin(Star):
             yield event.plain_result(f"❌ 查询出错: {e}")
 
     # ---------- 下载命令 ----------
-    @filter.regex(r"^(?:jm|JM|本子)\s*(\d+)(?:\s+(pdf|zip))?(?:\s+(full|\d+))?\s*$")
+    @filter.regex(r"^(?:jm|JM|本子)\s+\d+(?:\s+(?:pdf|zip))?(?:\s+(?:full|\d+))?$")
     async def on_jm_command(self, event: AstrMessageEvent):
         if not self._is_group_allowed(event):
             return
-
-        match = re.match(r"^(?:jm|JM|本子)\s*(\d+)(?:\s+(pdf|zip))?(?:\s+(full|\d+))?\s*$", event.message_str)
-        if not match:
-            yield event.plain_result("无法解析命令格式。")
+        text = event.message_str.strip()
+        album_id, transport, chapter = self._parse_jm_command(text)
+        if not album_id:
+            yield event.plain_result("无法提取有效的 JM ID。")
             return
 
-        album_id = match.group(1)
-        transport = match.group(2) if match.group(2) else 'pdf'
-        chapter = match.group(3)
-
-        if chapter == 'full':
-            chapter = 'full'
-        elif chapter is not None and chapter.isdigit():
-            chapter = int(chapter)
-
+        # 构造提示
         transport_label = "PDF" if transport == 'pdf' else "ZIP压缩包"
         if chapter is None:
             tip = "第一章"
@@ -156,6 +175,7 @@ class JmDownloaderPlugin(Star):
         yield event.plain_result(f"⏳ 正在下载本子 {album_id}（{transport_label}，{tip}），请稍候...")
         try:
             downloader = self._get_downloader()
+            # 根据传输方式调用不同方法
             if transport == 'zip':
                 output_path, album_dir = await asyncio.to_thread(
                     downloader.download_and_zip,
@@ -178,15 +198,8 @@ class JmDownloaderPlugin(Star):
                 if self.delete_output:
                     await self._delete_with_retry(output_path)
                 if self.auto_delete and album_dir and album_dir.exists():
-                    # 重试删除图片文件夹
-                    for _ in range(3):
-                        try:
-                            shutil.rmtree(album_dir, ignore_errors=True)
-                            logger.debug(f"已删除图片文件夹: {album_dir}")
-                            break
-                        except Exception as e:
-                            logger.warning(f"删除图片文件夹失败，重试: {e}")
-                            await asyncio.sleep(0.5)
+                    shutil.rmtree(album_dir)
+                    logger.debug(f"已删除图片文件夹: {album_dir}")
             else:
                 yield event.plain_result(f"❌ 下载本子 {album_id} 失败。")
         except Exception as e:
