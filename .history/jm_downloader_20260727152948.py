@@ -82,7 +82,7 @@ class JmDownloader:
         if image_files:
             # 相对于 base_path 的相对路径作为 ID
             rel_path = album_dir.relative_to(base_path)
-            chapter_id = "_".join(rel_path.parts) if rel_path != Path('.') else "root"
+            chapter_id = "_"join(rel_path.parts) if rel_path != Path('.') else "root"
             title = album_dir.name if album_dir != base_path else "根目录"
             chapters.append({
                 "id": chapter_id,
