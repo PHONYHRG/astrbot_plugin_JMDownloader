@@ -6,17 +6,17 @@
     },
     "auto_delete": {
         "type": "bool",
-        "description": "发送完成后是否自动删除下载的图片文件夹",
+        "description": "发送完成后是否自动删除下载的图片文件夹（保留 PDF/ZIP）",
         "default": false
     },
     "delete_output_after_send": {
         "type": "bool",
-        "description": "发送完成后是否自动删除 PDF/ZIP 输出文件",
+        "description": "发送完成后是否自动删除 PDF/ZIP 文件（保留图片文件夹）",
         "default": true
     },
     "clear_on_startup": {
         "type": "bool",
-        "description": "插件启动时是否自动清理临时文件夹和残留图片",
+        "description": "插件启动时是否自动清理临时文件夹和残留图片（释放空间）",
         "default": false
     },
     "cleanup_before_download": {
@@ -26,17 +26,17 @@
     },
     "max_file_size_mb": {
         "type": "int",
-        "description": "允许发送的最大文件大小（MB），超过则提示无法发送",
+        "description": "允许发送的最大文件大小（MB），超过则提示无法发送。建议 50-150 MB",
         "default": 100
     },
     "option_file": {
         "type": "string",
-        "description": "jmcomic 配置文件路径（.yml），留空则使用内置默认配置",
+        "description": "jmcomic 配置文件路径（.yml），留空则使用内置默认配置（仅下载图片）",
         "default": ""
     },
     "allowed_groups": {
         "type": "list",
-        "description": "允许使用该插件的群组 ID 列表，为空则所有群生效",
+        "description": "允许使用该插件的群组 ID 列表（字符串格式），为空则所有群生效",
         "default": []
     }
 }

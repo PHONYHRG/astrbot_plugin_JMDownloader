@@ -13,7 +13,7 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
     "astrbot_plugin_JMDownloader",
     "Phony",
     "通过 JM ID 下载禁漫本子，支持 PDF/ZIP 传输方式和多章节",
-    "0.0.5"
+    "0.0.4"
 )
 class JmDownloaderPlugin(Star):
     def __init__(self, context: Context, config: dict = None):
@@ -51,6 +51,22 @@ class JmDownloaderPlugin(Star):
         if not allowed:
             return True
         return group_id in allowed
+
+    async def _delete_with_retry(self, path: Path, max_retries: int = 5, delay: float = 0.5):
+        for i in range(max_retries):
+            try:
+                if path.exists():
+                    path.unlink()
+                    logger.debug(f"已删除文件: {path}")
+                return
+            except PermissionError as e:
+                if i == max_retries - 1:
+                    logger.warning(f"删除文件失败（已达最大重试次数）: {e}")
+                else:
+                    await asyncio.sleep(delay * (i + 1))
+            except Exception as e:
+                logger.warning(f"删除文件失败: {e}")
+                break
 
     async def _clean_temp_dirs(self):
         if not self.clear_on_startup:
@@ -164,35 +180,38 @@ class JmDownloaderPlugin(Star):
                         f"2. 使用 `{album_id} zip 2` 下载单章测试\n"
                         f"3. 联系管理员调整 `max_file_size_mb` 配置"
                     )
-                    # 文件太大不删除，但图片文件夹可以清理
+                    if self.delete_output:
+                        await self._delete_with_retry(output_path)
                     if self.auto_delete and album_dir and album_dir.exists():
                         shutil.rmtree(album_dir, ignore_errors=True)
-                        logger.debug(f"已删除图片文件夹: {album_dir}")
                     return
 
-                # 发送文件（使用 chain_result，框架标准方式）
-                yield event.chain_result([
-                    Plain(f"✅ 本子 {album_id}（{tip}）下载完成！"),
-                    File(file=str(output_path), name=output_path.name)
-                ])
-
-                # 【关键】yield 之后代码继续执行，此时消息已发送（或正在发送）
-                # 等待一小段时间确保文件传输开始
-                await asyncio.sleep(2)
-
-                # 删除输出文件（PDF/ZIP）
-                if self.delete_output and output_path.exists():
-                    try:
-                        output_path.unlink()
-                        logger.debug(f"已删除输出文件: {output_path}")
-                    except Exception as e:
-                        logger.warning(f"删除输出文件失败: {e}")
-
-                # 删除图片文件夹
-                if self.auto_delete and album_dir and album_dir.exists():
-                    shutil.rmtree(album_dir, ignore_errors=True)
-                    logger.debug(f"已删除图片文件夹: {album_dir}")
-
+                # 发送文件（直接传递消息链列表）
+                try:
+                    await event.send([
+                        Plain(f"✅ 本子 {album_id}（{tip}）下载完成！"),
+                        File(file=str(output_path), name=output_path.name)
+                    ])
+                    # 发送成功后清理
+                    await asyncio.sleep(1)
+                    if self.delete_output:
+                        await self._delete_with_retry(output_path)
+                    if self.auto_delete and album_dir and album_dir.exists():
+                        for _ in range(3):
+                            try:
+                                shutil.rmtree(album_dir, ignore_errors=True)
+                                logger.debug(f"已删除图片文件夹: {album_dir}")
+                                break
+                            except Exception as e:
+                                logger.warning(f"删除图片文件夹失败，重试: {e}")
+                                await asyncio.sleep(0.5)
+                except Exception as send_error:
+                    logger.error(f"发送文件失败: {send_error}")
+                    yield event.plain_result(
+                        f"❌ 文件发送失败，错误: {str(send_error)}\n"
+                        f"文件已保存在 {output_path}，请手动发送。"
+                    )
+                    # 发送失败不删除文件
             else:
                 yield event.plain_result(f"❌ 下载本子 {album_id} 失败。")
         except Exception as e:
